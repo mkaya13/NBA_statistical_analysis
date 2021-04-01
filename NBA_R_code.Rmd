@@ -1,0 +1,1421 @@
+---
+title: "A Study of NBA Dataset"
+author: "Mert Kaya"
+email: "KayaM1@cardiff.ac.uk"
+date:  " 23 February 2021 "
+
+fontsize: 11pt
+fontfamily: times
+geometry: margin=1in
+
+output:
+  bookdown::pdf_document2:
+
+    toc: true
+    number_sections: true
+    keep_tex: true 
+    citation_package: natbib
+    fig_caption: true 
+    
+    highlight: haddock 
+    df_print: kable
+    extra_dependencies:
+      caption: ["labelfont={bf}"]
+
+bibliography: [refs.bib]
+biblio-style: apalike
+link-citations: yes
+
+abstract: Our main purphose is to carry out some descriptive and inferential analysis over the nba data set, and to discover some considerable statistical evidences to evaluate the performance of teams and players, and the shoot results. First we start with investigating the performance of teams by looking into the margin scores of each team, and the significant effect of game locations over the win rates of the teams. We display some studies to emphasize the importance of 4 main periods on shoot attempts, successful 3 pointers, scores made in each period and shoot distances. Then we explore the significance of shot clock on successful 3 point shoots. Furthermore, we create a correlation matrix to see the relationship of some features and take advantage of the correlation statistics to perform a multi-linear regression in order to predict the average scores made by the nba players. 
+
+---
+
+<!-- set knitr options here -->
+
+```{r setup, include=FALSE}
+library(knitr)
+library(tidyverse)
+library(kableExtra)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r, include=FALSE}
+library(corrplot)
+library(Hmisc)
+library(car)
+library(ppcor)
+library(ggpubr)
+library(MASS)
+library(pROC) 
+library(lmtest)
+```
+
+
+
+
+
+
+```{r, include=FALSE}
+# read data
+nba <- read.csv("nbadata.csv", header = TRUE)
+
+all_teams <- unique(nba$HOME_TEAM)
+
+final_margins_home_avg <- c()
+final_margins_away_avg <- c()
+final_margins_all_avg <- c()
+margins_home_all_matches_by_team <- c()
+margins_home_all_teams <- c()
+final_margins_home_median <- c()
+final_margins_home_variance <- c()
+final_margins_away_median <- c()
+final_margins_away_variance <- c()
+margins_away_all_matches_by_team <- c()
+
+
+for (i in all_teams){
+    
+    home_match <- nba[(nba$LOCATION=="H" & nba$HOME_TEAM == i),]
+    home_margins <- aggregate(FINAL_MARGIN~GAME_ID, home_match, FUN= function(x){x <- unique(x); return (x)})
+    
+    home_teams <- aggregate(HOME_TEAM~GAME_ID, home_match, FUN= function(x){x <- unique(x); return (x)})
+    
+    home_margins_avg <- mean(home_margins$FINAL_MARGIN)
+    final_margins_home_avg <- c(final_margins_home_avg, home_margins_avg)
+    
+    home_margins_median <- median(home_margins$FINAL_MARGIN)
+    final_margins_home_median <- c(final_margins_home_median, home_margins_median)
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    home_margins_variance <- var(home_margins$FINAL_MARGIN)
+    final_margins_home_variance <- c(final_margins_home_variance, home_margins_variance)
+    
+    margins_home_each_team <- data.frame(home_teams,home_margins)
+    margins_home_all_matches_by_team <- rbind(margins_home_all_matches_by_team, margins_home_each_team)
+    
+     
+#   margins_home_dataframe_x <- data.frame(home_margins)
+#   margins_home_all_teams <- rbind(margins_home_all_teams, margins_home_dataframe)
+    
+    
+    away_match <- nba[(nba$LOCATION=="A" & nba$AWAY_TEAM == i),]
+    away_margins <- aggregate(FINAL_MARGIN~GAME_ID, away_match, FUN= function(x){x <- unique(x); return (x)})
+    
+    away_margins_avg <- mean(away_margins$FINAL_MARGIN)   
+    final_margins_away_avg <- c(final_margins_away_avg, away_margins_avg)
+    
+    away_margins_median <- median(away_margins$FINAL_MARGIN)
+    final_margins_away_median <- c(final_margins_away_median, away_margins_median)
+    
+    away_margins_variance <- var(away_margins$FINAL_MARGIN)
+    final_margins_away_variance <- c(final_margins_away_variance, away_margins_variance)
+    
+    away_teams <- aggregate(AWAY_TEAM~GAME_ID, away_match, FUN= function(x){x <- unique(x); return (x)})
+    
+    current_period <- aggregate(PERIOD~GAME_ID, away_match, FUN= function(x){x <- x; return (x)})
+    
+    
+    margins_away_each_team <- data.frame(away_teams,away_margins)
+    margins_away_all_matches_by_team <- rbind(margins_away_all_matches_by_team, margins_away_each_team) 
+    
+    
+    all_match <- nba[((nba$LOCATION=="H" & nba$HOME_TEAM==i) | (nba$LOCATION=="A" & nba$AWAY_TEAM==i)),]
+    all_margins <- aggregate(FINAL_MARGIN~GAME_ID, all_match, FUN= function(x){x <- unique(x); return (x)})
+    
+    all_margins_avg <- mean(all_margins$FINAL_MARGIN)
+    final_margins_all_avg <- c(final_margins_all_avg, all_margins_avg)
+    
+}
+
+
+
+```
+
+
+
+
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<!-- main body starts here -->
+
+# Descriptive Analysis of the NBA dataset {#sec:intro}
+
+The nba data set is basically consist of every single two and three pointer attempts made by the players and their corresponding detailed features during the matches played for approximately 2 months. Since nba is an intense league, although data was collected for a short period of time,the nba data includes 128069 observations with 23 variables.
+
+The variables given to analyze the shoots are listed below: 
+
+```{r, echo=FALSE}
+print(names(nba))
+
+```
+Since the data set has many features, a lot of analysis and inferences can be made, and we are interested to reveal some significant statistics.
+
+The only feature that has missing data is SHOT_CLOCK with 5567 observations and because of that situation, we can omit the missing data only when we are analyzing the shot clock.
+
+``` {r, echo = FALSE}
+for(i in colSums(is.na(nba))){
+    if(i>0){
+        print(i)
+    }
+}
+
+```
+```{r, echo = FALSE}
+nba_players <- unique(nba$PLAYER_NAME)
+
+scores_avg <- c()
+sum_scores <- c()
+match_count <- c()
+point_2_success_percentage <- c()
+point_3_success_percentage <- c()
+dribbles_avg <- c()
+win_rate <- c()
+touchtime_avg <- c()
+shotdistance_2_avg <- c()
+shotdistance_3_avg <- c()
+closedefdist_2_avg <- c()
+closedefdist_3_avg <- c()
+
+#team_player <- c()
+
+for (i in nba_players) {
+    match_each_player <- length(unique(nba$GAME_ID[nba$PLAYER_NAME == i]))
+    match_count <- c(match_count, match_each_player)
+    
+    shot_2_count <- length(nba$PTS_TYPE[nba$PLAYER_NAME==i & nba$PTS_TYPE == 2])
+    if(shot_2_count == 0){
+        input_1 <- 0           # "No_2_shoot"
+        point_2_success_percentage <- c(point_2_success_percentage, input_1)
+    }
+    else{
+    shot_2_made <- length(nba$PTS_TYPE[nba$PLAYER_NAME==i & nba$SHOT_RESULT == "made" & nba$PTS_TYPE == 2])
+    point_2_success_percentage <- c(point_2_success_percentage, (shot_2_made/shot_2_count))
+    }
+    
+    shot_3_count <- length(nba$PTS_TYPE[nba$PLAYER_NAME==i & nba$PTS_TYPE == 3])
+    if(shot_3_count == 0){
+        input_2 <- 0               #"No_3_shoot"
+        point_3_success_percentage <- c(point_3_success_percentage, input_2)
+    }else{
+        
+    shot_3_made <- length(nba$PTS_TYPE[nba$PLAYER_NAME==i & nba$SHOT_RESULT == "made" & nba$PTS_TYPE == 3])
+    point_3_success_percentage <- c(point_3_success_percentage, (shot_3_made/shot_3_count))
+    }
+    
+    
+    
+    shotdistance_2 <- mean(nba$SHOT_DIST[nba$PTS_TYPE == 2 & nba$PLAYER_NAME == i])
+    if(shotdistance_2 =="NaN"){
+        shotdistance_2_avg <- c(shotdistance_2_avg, input_1)
+    
+    }else{
+    shotdistance_2_avg <- c(shotdistance_2_avg, shotdistance_2)
+    }
+    
+    shotdistance_3 <- mean(nba$SHOT_DIST[nba$PTS_TYPE == 3 & nba$PLAYER_NAME == i])
+    if(shotdistance_3 == "NaN"){
+        shotdistance_3_avg <- c(shotdistance_3_avg, input_2)
+    
+    }else{
+    
+    shotdistance_3_avg <- c(shotdistance_3_avg, shotdistance_3)
+    }
+    
+    
+    
+    closedefdist_2 <- mean(nba$CLOSE_DEF_DIST[nba$PTS_TYPE == 2 & nba$PLAYER_NAME == i])
+    if(closedefdist_2 =="NaN"){
+        closedefdist_2_avg <- c(closedefdist_2_avg, input_1)
+    
+    }else{
+    closedefdist_2_avg <- c(closedefdist_2_avg, closedefdist_2)
+    }
+    
+    closedefdist_3 <- mean(nba$CLOSE_DEF_DIST[nba$PTS_TYPE == 3 & nba$PLAYER_NAME == i])
+    if(closedefdist_3 == "NaN"){
+        closedefdist_3_avg <- c(closedefdist_3_avg, input_2)
+    
+    }else{
+    
+    closedefdist_3_avg <- c(closedefdist_3_avg, closedefdist_3)
+    }
+    
+      
+    nba_scores <- nba[nba$PLAYER_NAME == i,]
+    scores_each_match <- aggregate(nba_scores$PTS, by = list(nba_scores$GAME_ID), FUN = "sum")
+    dribbles_each_match <- aggregate(nba_scores$DRIBBLES, by = list(nba_scores$GAME_ID), FUN = "sum")
+    touchtimes_each_match <- aggregate(nba_scores$TOUCH_TIME, by = list(nba_scores$GAME_ID), FUN = "sum")
+    
+    avg <- mean(scores_each_match$x)
+    sum <- sum(scores_each_match$x)
+    dribbles<- mean(dribbles_each_match$x)
+    touchtimes <- mean(touchtimes_each_match$x)
+    
+    
+    scores_avg <- c(scores_avg, avg)
+#    sum_scores <- c(sum_scores,sum)
+    dribbles_avg <- c(dribbles_avg,dribbles)
+    touchtime_avg <- c(touchtime_avg, touchtimes)
+    
+}
+
+
+data_players <- c()
+data_players <- data.frame(nba_players, match_count, scores_avg,dribbles_avg,touchtime_avg,point_2_success_percentage,
+                            point_3_success_percentage, shotdistance_2_avg,shotdistance_3_avg,closedefdist_2_avg,
+                            closedefdist_3_avg)
+colnames(data_players) <- c('player_name','match_count', 'score_avg','dribbles_avg','touchtime_avg',
+                             'point_2_success_percentage',
+                             'point_3_success_percentage',
+                             'shotdistance_2_avg',
+                             'shotdistance_3_avg',
+                             'closedefdist_2_avg',
+                             'closedefdist_3_avg')
+
+data_players_ordered <- data_players[order(-data_players$score_avg),]
+
+
+
+
+
+```
+
+
+
+
+Although the data set do not include all the nba players, it has `r length(unique(nba$PLAYER_NAME))` of nba players which is sufficient and it also has `r length(unique(nba$HOME_TEAM))` all of the nba teams that were playing in the current term. Moreover, the data contain `r length(unique(nba$GAME_ID))` matches.
+
+The nba data is complicated at first sight and it has to be regulated somehow.Thus, in our study, we organize the data to obtain the nba player and team information to use them to get some inferential analysis (see appendix for further descriptive analysis of the data).
+
+Overall, when we analyze the nba teams, we emphasize the margin difference and the importance of match locations over win rates of the teams. We investigate the periods with respect to amount of shoot attempts and investigated the effects of periods on successful 3 pointers. We also examine into the total scores and shoot distances by each period. In a separate title, we observed the relationship of shoot clock with the 3 pointers. When it comes to the player statistics, we create a correlation heat map to observe the connections of some features and finally we perform a regression with some major features to predict the average scores of nba players. 
+
+In this section, we will also emphasize some key points of the data to understand the features deeply.   
+
+```{r margins-home-graphics, echo = FALSE, fig.height = 3, fig.width = 10, fig.cap = "Margin means,medians and variances in Home for the nba teams ", fig.align = "center",latex_options = "HOLD_position"}
+
+par(mar=c(3,3,1,3))
+
+CEX1 <- 2
+CEX2 <- 1.8
+CEX3 <- 1.2
+
+plot(1:30, final_margins_home_median,main = "Home Margin Statistical Analysis for Each Team", 
+     type='o', pch=17, lwd=3, cex=CEX2, col='orange',
+     xlab='', ylab='', 
+     xaxt='n')
+
+lines(1:30, final_margins_home_avg, 
+     type='o', lty=2, pch=18, lwd=3, cex=CEX1, col='chartreuse3')
+
+axis(1, at=seq(1,30,by=1), labels=all_teams, las=2, srt = 45)
+
+legend('topright', c('Mean', 'Median', 'Variance'), 
+       col=c('chartreuse3', 'orange', 'firebrick2'), 
+       lty=c(2,1,1), lwd=3, 
+       pch=c(18,17,19), pt.cex=c(CEX1,CEX2,CEX3), 
+       y.intersp=1.3)
+
+# Allow a second plot on the same graph
+par(new=TRUE, par(xpd=FALSE))
+
+colNsupp<-'blue'
+
+plot(1:30, final_margins_home_variance, 
+     type='o', pch=19, lwd=3, cex=CEX3, col='firebrick2',
+     xlab='', ylab='',
+     xaxt='n', yaxt='n')
+
+axis(4, at=seq(0,400,by=50), 
+     labels=seq(0,400,by=50),
+     col='black', col.axis='black' ,las=0) 
+
+
+
+```
+Figure 1, represents the margin statistical information for the NBA teams played in home location. If we examine the first noticeable teams, when we look at CLE home margins scores, the median is much bigger than the mean thus we may state there are some outliers which affected the statistics deeply and these games affected the average score significantly. The variance is the highest among all teams and since, it might support our claim about outliers. 
+When it comes to GSW, it has the hightest margin average and median among all teams for the matches played in home. Since GSW has low variance compared to other teams, their margin values in each home match are more consistent when compared with many teams. But since we have approximately 30 match data played in home for all NBA teams, these comments and statistics might change a lot.
+
+```{r margins-away-graphics, echo = FALSE, fig.height = 3, fig.width = 10, fig.cap = "Margin means,medians and variances in Away for the nba teams ", fig.align = "center",latex_options = "HOLD_position"}
+
+options(repr.plot.width=9, repr.plot.height=5)
+
+par(mar=c(3,3,1,3))
+
+CEX1 <- 2
+CEX2 <- 1.8
+CEX3 <- 1.2
+
+plot(1:30, final_margins_away_median,main = "Away Margin Statistical Analysis for Each Team", 
+     type='o', pch=17, lwd=3, cex=CEX2, col='orange',
+     xlab='', ylab='', 
+     xaxt='n')
+
+lines(1:30, final_margins_away_avg, 
+     type='o', lty=2, pch=18, lwd=3, cex=CEX1, col='chartreuse3')
+
+axis(1, at=seq(1,30,by=1), labels=all_teams, las=2, srt = 45)
+
+legend('topright', c('Mean', 'Median', 'Variance'), 
+       col=c('chartreuse3', 'orange', 'firebrick2'), 
+       lty=c(2,1,1), lwd=3, 
+       pch=c(18,17,19), pt.cex=c(CEX1,CEX2,CEX3), 
+       y.intersp=1.3)
+
+# Allow a second plot on the same graph
+par(new=TRUE, par(xpd=FALSE))
+
+colNsupp<-'blue'
+
+plot(1:30, final_margins_away_variance, 
+     type='o', pch=19, lwd=3, cex=CEX3, col='firebrick2',
+     xlab='', ylab='',
+     xaxt='n', yaxt='n')
+
+axis(4, at=seq(0,400,by=50), 
+     labels=seq(0,400,by=50),
+     col='black', col.axis='black' ,las=0) 
+
+```
+
+In the Figure above, BKN has the highest variance in away matches according to the data, thus we might say their performance is very uncertain in away stadiums. They also have approximately -4 average margin and sligtly lower median than average.Furthermore, PHI has the lowest margin mean and median with reasonable variance. Their performance in away is reasonably worse than the home. 
+
+When we look at ATL, they have the highest mean and median with a reasonably low variance. According to these statistics, they are really successful in away matches compared to other teams and their performance is consistent. 
+
+
+```{r correlation-for-player-statistics, echo = FALSE, fig.height = 9, fig.width = 18, fig.cap = "Heatmap for the partial correlation of the average player features in nba dataset", fig.align = "center",latex_options = "HOLD_position"}
+
+corrmat <- cor(data_players[2:11])
+
+corrplot(corrmat, method="circle")
+
+```
+
+The correlation heatmap shown in Figure 3 includes some significant connections between NBA player features. Some reasonable points are:
+
+- Score average is positively correlated with touch time average
+- Score average is also positively correlated with dribbles average
+- Touch time average and dribbles average are strongly positive correlated
+- 2 point success percentage is negatively correlated with shoot distance of 2 points
+
+```{r score-avg-players, echo = FALSE, fig.height = 4, fig.width = 6, fig.cap = "Nba players average score histogram with mean confidence interval of 0.99 ", fig.align = "center",latex_options = "HOLD_position"}
+
+CI_mean_scoreavg <- t.test(data_players_ordered$score_avg, conf.level = 0.99)$conf.int
+
+options(repr.plot.width = 8 , repr.plot.height = 6)
+
+hist(data_players_ordered$score_avg, freq = FALSE, col = 'yellow',main = 'Histogram of Score Average',xlab='Average Score')
+abline(v = CI_mean_scoreavg [1], lty = 2, col = 'brown')
+abline(v = CI_mean_scoreavg [2], lty = 2, col = 'brown')
+
+```
+
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+
+In the Figure above(Figure 4), the score average of each nba player can be seen(free throws are not included). As we can see, big majority of players have approximately 5 and 6 points average. On the other hand, when we examine the average confidence interval, we see an interval between approximately 8 and 9.3 points. Perhaps some players with high scores pull up the average significantly.
+
+
+```{r, echo = FALSE}
+all_teams <- unique(nba$HOME_TEAM)
+
+final_margins_home_avg <- c()
+final_margins_away_avg <- c()
+final_margins_all_avg <- c()
+margins_home_all_matches_by_team <- c()
+margins_home_all_teams <- c()
+final_margins_home_median <- c()
+final_margins_home_variance <- c()
+final_margins_away_median <- c()
+final_margins_away_variance <- c()
+margins_away_all_matches_by_team <- c()
+
+for (i in all_teams){
+    
+    home_match <- nba[(nba$LOCATION=="H" & nba$HOME_TEAM == i),]
+    home_margins <- aggregate(FINAL_MARGIN~GAME_ID, home_match, FUN= function(x){x <- unique(x); return (x)})
+    
+    home_teams <- aggregate(HOME_TEAM~GAME_ID, home_match, FUN= function(x){x <- unique(x); return (x)})
+    
+    home_margins_avg <- mean(home_margins$FINAL_MARGIN)
+    final_margins_home_avg <- c(final_margins_home_avg, home_margins_avg)
+    
+    home_margins_median <- median(home_margins$FINAL_MARGIN)
+    final_margins_home_median <- c(final_margins_home_median, home_margins_median)
+    
+    home_margins_variance <- var(home_margins$FINAL_MARGIN)
+    final_margins_home_variance <- c(final_margins_home_variance, home_margins_variance)
+    
+    margins_home_each_team <- data.frame(home_teams,home_margins)
+    margins_home_all_matches_by_team <- rbind(margins_home_all_matches_by_team, margins_home_each_team)
+    
+     
+#   margins_home_dataframe_x <- data.frame(home_margins)
+#   margins_home_all_teams <- rbind(margins_home_all_teams, margins_home_dataframe)
+    
+    
+    away_match <- nba[(nba$LOCATION=="A" & nba$AWAY_TEAM == i),]
+    away_margins <- aggregate(FINAL_MARGIN~GAME_ID, away_match, FUN= function(x){x <- unique(x); return (x)})
+    
+    away_margins_avg <- mean(away_margins$FINAL_MARGIN)   
+    final_margins_away_avg <- c(final_margins_away_avg, away_margins_avg)
+    
+    away_margins_median <- median(away_margins$FINAL_MARGIN)
+    final_margins_away_median <- c(final_margins_away_median, away_margins_median)
+    
+    away_margins_variance <- var(away_margins$FINAL_MARGIN)
+    final_margins_away_variance <- c(final_margins_away_variance, away_margins_variance)
+    
+    away_teams <- aggregate(AWAY_TEAM~GAME_ID, away_match, FUN= function(x){x <- unique(x); return (x)})
+    
+    margins_away_each_team <- data.frame(away_teams,away_margins)
+    margins_away_all_matches_by_team <- rbind(margins_away_all_matches_by_team, margins_away_each_team) 
+    
+    
+    all_match <- nba[((nba$LOCATION=="H" & nba$HOME_TEAM==i) | (nba$LOCATION=="A" & nba$AWAY_TEAM==i)),]
+    all_margins <- aggregate(FINAL_MARGIN~GAME_ID, all_match, FUN= function(x){x <- unique(x); return (x)})
+    
+    all_margins_avg <- mean(all_margins$FINAL_MARGIN)
+    final_margins_all_avg <- c(final_margins_all_avg, all_margins_avg)
+    
+}
+
+data_margins <- c()
+data_margins <- data.frame(all_teams, final_margins_home_avg, final_margins_away_avg,final_margins_all_avg)
+
+
+```
+
+
+
+
+
+# Nba Team Performances by Game Locations {#sec:team-performance-game-location}
+
+As we watch nba matches, we usually see the high support of the audience for the players during the games and in public, there is a general view that the audience affects the performance of players massively. Thus, in this section, we will try to find some evidences about the effect of game location over the nba teams to support this claim.     
+
+
+## Margin Comparison of Teams
+
+
+```{r margin-locations, echo = FALSE}
+
+home_t1 <- fligner.test(FINAL_MARGIN ~ HOME_TEAM, data = margins_home_all_matches_by_team)
+home_t2 <- bartlett.test(FINAL_MARGIN ~ HOME_TEAM, data = margins_home_all_matches_by_team)
+home_t3 <- leveneTest(FINAL_MARGIN ~ HOME_TEAM, data = margins_home_all_matches_by_team)
+
+test_home_df <- data.frame(Test=c('Bartlett', 'Fligner-Killeen', 'Levene'),
+                                    p.value=c(home_t1$p.value, home_t2$p.value, home_t3[1,3]))
+
+away_t1 <- fligner.test(FINAL_MARGIN ~ AWAY_TEAM, data = margins_away_all_matches_by_team)
+away_t2 <- bartlett.test(FINAL_MARGIN ~ AWAY_TEAM, data = margins_away_all_matches_by_team)
+away_t3 <- leveneTest(FINAL_MARGIN ~ AWAY_TEAM, data = margins_away_all_matches_by_team)
+
+test_away_df <- data.frame(Test=c('Bartlett', 'Fligner-Killeen', 'Levene'),
+                                    p.value=c(away_t1$p.value, away_t2$p.value, away_t3[1,3]))
+
+knitr::kable(
+  list(test_home_df, test_away_df),
+  caption = 'Variance tests of the margins of each nba team for locations HOME and AWAY respectively',
+  align = 'cc',
+  booktabs = TRUE)%>%kable_styling(latex_options = "HOLD_position")
+
+```
+
+In Table \@ref(tab:margin-locations), these 3 test results for the locations of home and away describe no significance to claim that variance of margins are different for each team for the significance level of $\alpha=0.05$. But since we are applying these tests for all teams, we might ignore the difference of variance between some specific teams. 
+
+To investigate the mean margin's of each nba team in the Home and Away locations, let's apply 2 one-way anova tests. Thus we found very small p-values for both of them, then we have strong evidences to conclude that there are differences in margin means for the at least 2 nba teams in both locations.Since we have approximately same amount of matches for each team for both locations, the data that we investigate is stable.However, there are approximately 30 matches in home and away for each team, and such low amount of data might cause wrong results for our anova tests. Thus we should investigate some specific teams.      
+
+```{r, echo = FALSE}
+home_anova <- aov(FINAL_MARGIN ~ HOME_TEAM, data = margins_home_all_matches_by_team)
+away_anova <- aov(FINAL_MARGIN ~ AWAY_TEAM, data = margins_away_all_matches_by_team)
+print(summary(home_anova))
+print(summary(away_anova))
+```
+
+
+Figure \@ref(fig:margin-CI-comparison) suggests that the mean interval of home margin of GSW might be higher than other teams. When it comes to matches in away, PHI may have the lowest margin mean in away matches compared to other teams. But since we have low amount of data the CI's might not be meaningful. (Around 30 matches in away and home for each teams)
+
+
+```{r margin-CI-comparison, echo = FALSE, fig.height = 6, fig.width = 16, fig.cap = "Confidence intervals of each nba team margins with respect to location of Home and Away.", fig.align = "center", latex_options = "HOLD_position", fig.pos="H"}
+
+knitr::opts_chunk$set(fig.pos = 'H')
+
+data_margins_ordered <- data_margins[order(-data_margins$final_margins_all_avg),]
+
+CI_mean_home_avg <- matrix(0,30,2)
+CI_mean_away_avg <- matrix(0,30,2)
+counter_1 <- 0
+counter_2 <- 0
+
+for (i in all_teams){
+obs <- margins_home_all_matches_by_team$FINAL_MARGIN[margins_home_all_matches_by_team$HOME_TEAM==i]
+    CI_mean_1 <- t.test(obs, conf.level = 0.95)$conf.int
+    CI_mean_home_avg[counter_1+1,] <- CI_mean_1
+    counter_1 = counter_1+1
+    }
+
+for (i in all_teams){
+obs <- margins_away_all_matches_by_team$FINAL_MARGIN[margins_away_all_matches_by_team$AWAY_TEAM==i]
+    CI_mean_2 <- t.test(obs, conf.level = 0.95)$conf.int
+    CI_mean_away_avg[counter_2+1,] <- CI_mean_2
+    counter_2 = counter_2+1
+}
+
+par(mfrow=c(1,2))
+
+MaxY = max(CI_mean_home_avg)
+MinY = min(CI_mean_home_avg)
+
+plot(1:30, CI_mean_home_avg[,1],
+     type = "p", pch=3,lwd=3,col='red',
+     ylim = c(MinY,MaxY),
+     ylab = 'Mean',
+     xaxt ='n', xlab ='',
+     main = "Mean Margins in Home (CI at 95% conf.)")
+
+axis(1, at=seq(1,30,by=1), labels=all_teams, las=2, srt = 45)
+
+points(1:30, CI_mean_home_avg[,2], pch=3, lwd=3, col='red')
+
+for (i in 1:30){
+    lines(c(i,i), CI_mean_home_avg[i,], lwd=3, col='red')
+}
+
+MaxY_2 = max(CI_mean_away_avg)
+MinY_2 = min(CI_mean_away_avg)
+
+plot(1:30, CI_mean_away_avg[,1],
+     type = "p", pch=3,lwd=3,col='green',
+     ylim = c(MinY_2,MaxY_2),
+     ylab = 'Mean',
+     xaxt ='n', xlab ='',
+     main = "Mean Margins in Away (CI at 95% conf.)")
+
+axis(1, at=seq(1,30,by=1), labels=all_teams, las=2, srt = 45)
+
+points(1:30, CI_mean_away_avg[,2], pch=3, lwd=3, col='green')
+
+for (i in 1:30){
+    lines(c(i,i), CI_mean_away_avg[i,], lwd=3, col='green')
+}
+
+
+```
+In Figure \@ref(fig:margin-CI-comparison), we observe that the Confidence interval of OKC as the closest to GSW, so we should compare their margin means to see if there is a significance.
+``` {r, echo = FALSE}
+
+var_test_home_1 <- var.test(margins_home_all_matches_by_team$FINAL_MARGIN[margins_home_all_matches_by_team$HOME_TEAM == "GSW"],
+      margins_home_all_matches_by_team$FINAL_MARGIN[margins_home_all_matches_by_team$HOME_TEAM == "OKC"],
+         alternative = 'two.sided')$p.value
+
+mean_test_home_1 <- t.test(margins_home_all_matches_by_team$FINAL_MARGIN[margins_home_all_matches_by_team$HOME_TEAM == "GSW"],
+      margins_home_all_matches_by_team$FINAL_MARGIN[margins_home_all_matches_by_team$HOME_TEAM == "OKC"],var.equal=TRUE,
+      method = "greater")$p.value
+
+wilcox_test_home_1 <- wilcox.test(margins_home_all_matches_by_team$FINAL_MARGIN[margins_home_all_matches_by_team$HOME_TEAM == "GSW"],
+      margins_home_all_matches_by_team$FINAL_MARGIN[margins_home_all_matches_by_team$HOME_TEAM == "OKC"],var.equal=TRUE,
+      method = "greater")$p.value
+```
+``` {r, echo = FALSE}
+noquote(sprintf('F-test between GSW and OKC for Home p-val=%.4f', var_test_home_1))
+noquote(sprintf('t-test between GSW and OKC for Home p-val=%.4f', mean_test_home_1))
+noquote(sprintf('Wilcox-test between GSW and OKC for Home p-val=%.4f', wilcox_test_home_1))
+
+```
+As it can be seen, even though, the p-value of the F-test is large and do not mentions about difference in margin variances for GSW and OKC, the p-values for the t-test and non-parametric wilcox-test[@korean:j] are particularly small and we obtain powerful evidences to state that the mean margin value of GSW is larger than OKC, and most likely GSW has the largest mean margin for the games played in home. 
+
+In Figure \@ref(fig:margin-CI-comparison), we observe that the confidence interval of the PHI as the lowest, thus we will compare it with one of the teams with closer confidence interval. Thus we will compare PHI with DEN.
+```{r, echo = FALSE}
+var_test_away_1 <-var.test(margins_away_all_matches_by_team$FINAL_MARGIN[margins_away_all_matches_by_team$AWAY_TEAM == "PHI"],
+      margins_away_all_matches_by_team$FINAL_MARGIN[margins_away_all_matches_by_team$AWAY_TEAM == "DEN"],
+         alternative = 'two.sided')$p.value
+
+mean_test_away_1 <- t.test(margins_away_all_matches_by_team$FINAL_MARGIN[margins_away_all_matches_by_team$AWAY_TEAM == "PHI"],
+      margins_away_all_matches_by_team$FINAL_MARGIN[margins_away_all_matches_by_team$AWAY_TEAM == "DEN"],var.equal=TRUE,
+        alternative = 'less')$p.value
+
+wilcox_test_away_1 <-wilcox.test(margins_away_all_matches_by_team$FINAL_MARGIN[margins_away_all_matches_by_team$AWAY_TEAM == "PHI"],
+      margins_away_all_matches_by_team$FINAL_MARGIN[margins_away_all_matches_by_team$AWAY_TEAM == "DEN"],var.equal=TRUE,
+      alternative = 'less')$p.value
+
+noquote(sprintf('F-test between PHI and DEN for Home p-val=%.4f', var_test_away_1))
+noquote(sprintf('t-test between PHI and DEN for Home p-val=%.4f', mean_test_away_1))
+noquote(sprintf('Wilcox-test between PHI and DEN for Home p-val=%.4f', wilcox_test_away_1))
+
+```
+As it can be seen above, we have a large p-value and we do not have any evidence to state any difference in margin variances in away location between these teams. Since we have low p-values for t-test and wilcox-test we have strong proofs to suggest that, PHI has lower margin means than DEN and most likely PHI has the lowest margin means compared to other teams.
+
+## The Effects of Game Locations
+
+In the data given, when the matches take place in home stadium, the margin has higher average and median values compared to the matches played in away stadiums. We will apply some statistical tests to seek any interesting statistical evidences.
+
+```{r margin-location-comparison, echo = FALSE, fig.height = 4, fig.width = 4, fig.cap = "Comparison of margins in each match for Away and Home locations", fig.align = "center"}
+
+boxplot(margins_home_all_matches_by_team$FINAL_MARGIN, margins_away_all_matches_by_team$FINAL_MARGIN,
+    col = c("blue","orange" ), names = c("H","A"))
+```
+Since we are comparing margin values, the variance will be equal to 0. Furthermore, the addition of each values in home and away margins will be equal to 0 as well. When we are looking at sport data like football or basketball, when we add all the margin values of each teams(played in home and away) we get 0. in Figure \@ref(fig:margin-location-comparison)
+```{r, echo =FALSE}
+
+var_test_1 <- var.test(margins_home_all_matches_by_team$FINAL_MARGIN, margins_away_all_matches_by_team$FINAL_MARGIN)$p.value
+t_test_1 <- t.test(margins_home_all_matches_by_team$FINAL_MARGIN, margins_away_all_matches_by_team$FINAL_MARGIN,
+       method ="greater", alpha = 0.05, var.equal =TRUE)$p.value
+kruskal_test_1 <- kruskal.test(margins_home_all_matches_by_team$FINAL_MARGIN, margins_away_all_matches_by_team$FINAL_MARGIN)$p.value
+
+noquote(sprintf('F-test: p-val=%.4f', var_test_1))
+noquote(sprintf('t-test: p-val=%.11f', t_test_1))
+noquote(sprintf('Kruskal-test: p-val=%.4f', kruskal_test_1))
+
+
+```
+As the p-value's are less than the specified significance level 0.05 for both t-test and kruskal-test, we have evidence to conclude that the samples of the margin values for the matches played in home is larger than the games played in away stadiums.
+
+```{r, echo = FALSE}
+teams <- unique(nba$HOME_TEAM)
+match_count <- c()
+home_wins <- c()
+home_loses <- c()
+home_win_per <- c()
+avg_point_H <- c()
+
+away_wins <- c()
+away_loses <- c()
+away_win_per <- c()
+avg_point_A <- c()
+
+total_wins <- c()
+total_loses <- c()
+
+total_win_percentage <- c()
+total_margin <- c()
+
+for (i in teams){
+    
+    
+    match <- length(unique(nba$GAME_ID[nba$HOME_TEAM == i | nba$AWAY_TEAM == i]))
+    match_count <- c(match_count, match)
+    
+    homewins <- length(unique(nba$GAME_ID[nba$HOME_TEAM == i & nba$LOCATION == "H" & nba$W == "W"]))
+    home_wins <- c(home_wins,homewins)
+    
+    homeloses <- length(unique(nba$GAME_ID[nba$HOME_TEAM == i & nba$LOCATION == "H" & nba$W == "L"]))
+    home_loses <- c(home_loses, homeloses)
+    
+    home_win_per <- c(home_win_per, homewins/(homewins+homeloses ))
+    
+    t <- nba[nba$HOME_TEAM == i,]
+    n <- aggregate(t$PTS, by = list(t$GAME_ID), FUN="sum")
+    o <- mean(n$x)
+    avg_point_H <- c(avg_point_H, o)
+    
+    
+    awaywins <- length(unique(nba$GAME_ID[nba$AWAY_TEAM == i & nba$LOCATION == "A" & nba$W == "W"]))
+    away_wins <- c(away_wins,awaywins)
+    
+    awayloses <- length(unique(nba$GAME_ID[nba$AWAY_TEAM == i & nba$LOCATION == "A" & nba$W == "L"]))
+    away_loses <- c(away_loses,awayloses)
+    
+    away_win_per <- c(away_win_per, awaywins/(awaywins+awayloses) )
+    
+    total_wins <- c(total_wins, homewins+awaywins)
+    total_loses <- c(total_loses, homeloses+awayloses)
+    
+    totalwinpercentage <- (homewins+awaywins)/(homewins+awaywins+homeloses+awayloses)
+    total_win_percentage <- c(total_win_percentage, totalwinpercentage)
+    
+}
+
+data_team <- data.frame(teams,match_count,home_wins,home_win_per, home_loses,
+                        away_wins,away_win_per,away_loses,total_wins,total_loses,total_win_percentage)
+
+team_ordered_by_win_per <- data_team[order(-data_team$total_win_percentage),]
+
+Wins_locations <- c(sum(data_team$home_wins), sum(data_team$away_wins))
+total_games <- c(length(unique(nba$GAME_ID)),length(unique(nba$GAME_ID)))
+
+
+```
+When we apply prop test to examine the win rates of the teams for the different locations matches take place:
+
+```{r, echo = FALSE}
+locations_comparison <- prop.test(Wins_locations, total_games, alternative = 'greater' , conf.level = 0.99)$p.value
+noquote(sprintf('Prop-test: p-val=%.10f', locations_comparison))
+
+```
+Thus we have a solid proof to state that the win rates of the teams higher when they play the matches in home compared to the away.
+
+# Differences Between Periods {#sec:periods}
+
+As the game approaches its end, we can consider that the performance of the players is affected and teams' approach to win the game might be also affected. In this section, to support our general thoughts(claims), we are going to investigate the 2 and 3 pointer attempts statistics and the connection of shoot results, with respect to periods. We will also look at the effects of location, period and the interaction of location and period over the 3 pointer shoot attempts via using two-way anova test[@restor:dent]. Furthermore, we are going to analyze the shoot distance preferences by each period.
+
+## 2 and 3 Pointer Attempts Comparison Between 4 Main Periods
+
+In the figure \@ref(fig:point-proportions-by-periods) we see the confidence intervals of the 2 and 3 pointer proportions to the total attempts of 2 and 3 respectively. The first noticeable things are the difference between the CI interval proportions of 2 pointers between period 1 and 4. Furthermore we also observe the difference of CI interval proportions of 3 pointers between period 1 and 4. Thus we are going start with analyzing these highlights. 
+
+```{r point-proportions-by-periods, echo = FALSE, fig.height = 4, fig.width = 10, fig.cap = "Confidence intervals for the ratios of 2 and 3 point attempts for each period to the total attempts made for all the periods", fig.align = "center"}
+
+periods_4 <- unique(nba$PERIOD)[1:4]
+
+successful_2_each_period <- c(length(nba$PTS[nba$PTS==2 & nba$PERIOD ==1]),
+                             length(nba$PTS[nba$PTS==2 & nba$PERIOD ==2]),
+                             length(nba$PTS[nba$PTS==2 & nba$PERIOD ==3]),
+                             length(nba$PTS[nba$PTS==2 & nba$PERIOD ==4]))
+
+missed_2_each_period <- c(length(nba$PTS[nba$PTS_TYPE==2 & nba$SHOT_RESULT == "missed" & nba$PERIOD ==1]),
+                         length(nba$PTS[nba$PTS_TYPE==2 & nba$SHOT_RESULT == "missed" & nba$PERIOD ==2]),
+                         length(nba$PTS[nba$PTS_TYPE==2 & nba$SHOT_RESULT == "missed" & nba$PERIOD ==3]),
+                         length(nba$PTS[nba$PTS_TYPE==2 & nba$SHOT_RESULT == "missed" & nba$PERIOD ==4]))
+
+
+point_2_attempt_period_1_and_4 <- c(length(nba$PTS[nba$PTS==2 & nba$PERIOD ==1])+
+                                    length(nba$PTS[nba$PTS_TYPE==2 & nba$SHOT_RESULT == "missed" & nba$PERIOD ==1]),
+                                    length(nba$PTS[nba$PTS==2 & nba$PERIOD ==4])+
+                                    length(nba$PTS[nba$PTS_TYPE==2 & nba$SHOT_RESULT == "missed" & nba$PERIOD ==4]))
+periods_4 <- unique(nba$PERIOD)[1:4]
+data_2_each_period <- data.frame(periods_4, successful_2_each_period, missed_2_each_period)
+
+
+totalshoot_2_each_period <- data_2_each_period$successful_2_each_period+data_2_each_period$missed_2_each_period
+data_2_each_period <-  data.frame(periods_4, successful_2_each_period, missed_2_each_period, totalshoot_2_each_period)
+
+CI_prop_periods_2_points <- matrix(0,4,3)
+
+all_shoot_attempts_2 <- sum(data_2_each_period$totalshoot_2_each_period)
+indexer <- 1
+for (i in data_2_each_period$totalshoot_2_each_period){
+
+CI_prop_periods_2_points[indexer,] =   binconf(i, all_shoot_attempts_2, alpha = 0.01, method ="exact")[1:3] 
+indexer = indexer+1
+    
+}
+
+successful_3_each_period <- c(length(nba$PTS[nba$PTS==3 & nba$PERIOD ==1]),
+                             length(nba$PTS[nba$PTS==3 & nba$PERIOD ==2]),
+                             length(nba$PTS[nba$PTS==3 & nba$PERIOD ==3]),
+                             length(nba$PTS[nba$PTS==3 & nba$PERIOD ==4]))
+
+missed_3_each_period <- c(length(nba$PTS[nba$PTS_TYPE==3 & nba$SHOT_RESULT == "missed" & nba$PERIOD ==1]),
+                         length(nba$PTS[nba$PTS_TYPE==3 & nba$SHOT_RESULT == "missed" & nba$PERIOD ==2]),
+                         length(nba$PTS[nba$PTS_TYPE==3 & nba$SHOT_RESULT == "missed" & nba$PERIOD ==3]),
+                         length(nba$PTS[nba$PTS_TYPE==3 & nba$SHOT_RESULT == "missed" & nba$PERIOD ==4]))
+
+data_3_each_period <- data.frame(periods_4, successful_3_each_period, missed_3_each_period)
+
+totalshoot_3_each_period <- data_3_each_period$successful_3_each_period+data_3_each_period$missed_3_each_period
+data_3_each_period <-  data.frame(periods_4, successful_3_each_period, missed_3_each_period, totalshoot_3_each_period)
+
+CI_prop_periods_3_points <- matrix(0,4,3)
+
+all_shoot_attempts_3 <- sum(data_3_each_period$totalshoot_3_each_period)
+indexer_2 <- 1
+for (i in data_3_each_period$totalshoot_3_each_period){
+
+CI_prop_periods_3_points[indexer_2,] =   binconf(i, all_shoot_attempts_3, alpha = 0.01, method ="exact")[1:3] 
+indexer_2 = indexer_2+1
+    
+}
+
+
+par(mfrow=c(1,2))
+
+MinY_2 <- min(CI_prop_periods_2_points[,2])
+MaxY_2 <- max(CI_prop_periods_2_points[,3])
+
+plot(1:4, CI_prop_periods_2_points[,2], 
+     type='p', pch=3, lwd=3, col='white',
+     ylim=c(MinY_2, MaxY_2), 
+     ylab='Proportion', 
+     xaxt='n', xlab='',
+     main='Proportion of 2 point attempts (CI %99)')
+
+axis(1, at=seq(1,4,by=1), labels=data_2_each_period$periods, las=0)
+
+for (i in 1:4){
+    lines(c(i,i), CI_prop_periods_2_points[i,2:3], lwd=7, col='firebrick')
+}
+
+MinY_3 <- min(CI_prop_periods_3_points[,2])
+MaxY_3 <- max(CI_prop_periods_3_points[,3])
+
+plot(1:4, CI_prop_periods_3_points[,2], 
+     type='p', pch=3, lwd=3, col='white',
+     ylim=c(MinY_3, MaxY_3), 
+     ylab='Proportion', 
+     xaxt='n', xlab='',
+     main='Proportion of 3 point attempts(CI %99)')
+
+axis(1, at=seq(1,4,by=1), labels=data_3_each_period$periods, las=0)
+
+for (i in 1:4){
+    lines(c(i,i), CI_prop_periods_3_points[i,2:3], lwd=7, col='blue')
+}
+
+```
+When we apply the prop test to the 2 pointer attempts between periods 1 and 4, we see huge difference between the proportions. We also obtain a very small p-value. So, we can say that, we have a beneficial evidence to state 2 pointer attempt proportion in period 1 is higher than period 4.
+```{r, echo = FALSE}
+all_point_2_attempts_list_1vs4 <- c(data_2_each_period$totalshoot_2_each_period[1]
+                               ,data_2_each_period$totalshoot_2_each_period[4])
+
+all_2_shots <- sum(data_2_each_period$totalshoot_2_each_period)
+
+prop_2_periods_1_4 <-prop.test(all_point_2_attempts_list_1vs4, c(all_2_shots,all_2_shots), alternative ="greater", conf.level = 0.99)[4]
+prop_2_pvalues_1_4 <-prop.test(all_point_2_attempts_list_1vs4, c(all_2_shots,all_2_shots), alternative ="greater", conf.level = 0.99)$p.value
+
+print(prop_2_periods_1_4)
+print(prop_2_pvalues_1_4)
+
+
+```
+Next, we look at the 3 pointer attempts between period 1 and 4 and obtain small p-value. So, we have a statistical demonstration to say the 3 pointer attempts is higher in period 4 compared to the period 1.
+```{r, echo=FALSE}
+
+all_point_3_attempts_list_1vs4 <- c(data_3_each_period$totalshoot_3_each_period[1]
+                               ,data_3_each_period$totalshoot_3_each_period[4])
+
+all_3_shots <- sum(data_3_each_period$totalshoot_3_each_period)
+
+prop_3_periods_1_4 <- prop.test(all_point_3_attempts_list_1vs4, c(all_3_shots,all_3_shots), alternative ="less", conf.level = 0.99)[4]
+prop_3_pvalues_1_4 <- prop.test(all_point_3_attempts_list_1vs4, c(all_3_shots,all_3_shots), alternative ="less", conf.level = 0.99)$p.value
+
+print(prop_3_periods_1_4)
+print(prop_3_pvalues_1_4)
+
+
+```
+- Perhaps, as the game gets closer to end, the teams start to play risky and focus on attempting 3 pointers rather than 2 pointers because they probably see the 3 pointers as quick and easy points. Thus we have some evidences to say the amount of 2 pointers probably decrease and 3 pointers likely to increase as the game ends.
+
+## Connection of Successful 2 and 3 Pointers with Periods
+
+In the table below, we see the amount of shot-result by each main periods.
+```{r , echo = FALSE}
+
+nba_periods_2_points <- nba[(nba$PERIOD == 1 | nba$PERIOD == 2 | nba$PERIOD == 3 | nba$PERIOD == 4), ]
+nba_periods_2_points <- nba_periods_2_points[(nba_periods_2_points$PTS_TYPE == 2),]
+
+period_table_2_points <- table(nba_periods_2_points[c(18,11)])
+
+period_table_2_points
+
+```
+As we apply chi-test below, we do not have a small p-value thus we cannot mention about a strong relationship between shot result of 2 pointers and periods. 
+```{r , echo = FALSE}
+
+chisq.test(period_table_2_points)
+
+```
+In the table below, we look at the shot result of 3 pointers with respect to periods.
+```{r, echo = FALSE}
+nba_periods_3_points <- nba[(nba$PERIOD == 1 | nba$PERIOD == 2 | nba$PERIOD == 3 | nba$PERIOD == 4), ]
+nba_periods_3_points <- nba_periods_3_points[(nba_periods_3_points$PTS_TYPE == 3),]
+
+period_table_3_points <- table(nba_periods_3_points[c(18,11)])
+
+period_table_3_points
+
+```
+In the chi-test below, we have a strong proof to say there is a significance between shot result of 3 pointers and the periods because we have a small p-value.
+```{r, echo = FALSE}
+
+chisq.test(period_table_3_points)
+
+```
+
+## Location vs Periods for 3 Points Shoot Attempts
+
+We implement a two-way anova test to investigate how the mean of numerical variable differ according to 2 categorical variables. In our two-way anova test, we are going to look at how location, period and their combination affect the 3 pointer attempts.
+```{r , echo = FALSE}
+
+attempts_1 <- c()
+successful_1 <- c()
+period_letter_1 <- c()
+
+attempts_2 <- c()
+successful_2 <- c()
+period_letter_2 <- c()
+
+attempts_3 <- c()
+successful_3 <- c()
+period_letter_3 <- c()
+
+attempts_4 <- c()
+successful_4 <- c()
+period_letter_4 <- c()
+
+for(i in all_teams){
+    
+period_1_3_attempts <- nba[(nba$HOME_TEAM==i & nba$LOCATION=="H" & nba$PERIOD==1 & nba$PTS_TYPE==3), ]
+period_1_3_attempts_length <- aggregate(PTS_TYPE~GAME_ID, period_1_3_attempts, FUN=length)
+    
+period_1_3_successful <- nba[(nba$HOME_TEAM==i & nba$LOCATION=="H" & nba$PERIOD==1 & nba$PTS_TYPE==3 & nba$SHOT_RESULT=="made"),]
+period_1_3_successful_length <- aggregate(PTS_TYPE~GAME_ID, period_1_3_successful, FUN=length)
+    
+attempts_1 <- c(attempts_1, period_1_3_attempts_length$PTS_TYPE)    
+successful_1 <- c(successful_1, period_1_3_successful_length$PTS_TYPE)
+    
+period_2_3_attempts <- nba[(nba$HOME_TEAM==i & nba$LOCATION=="H" & nba$PERIOD==2 & nba$PTS_TYPE==3), ]
+period_2_3_attempts_length <- aggregate(PTS_TYPE~GAME_ID, period_2_3_attempts, FUN=length)
+    
+period_2_3_successful <- nba[(nba$HOME_TEAM==i & nba$LOCATION=="H" & nba$PERIOD==2 & nba$PTS_TYPE==3 & nba$SHOT_RESULT=="made"),]
+period_2_3_successful_length <- aggregate(PTS_TYPE~GAME_ID, period_2_3_successful, FUN=length)
+    
+attempts_2 <- c(attempts_2, period_2_3_attempts_length$PTS_TYPE)    
+successful_2 <- c(successful_2, period_2_3_successful_length$PTS_TYPE)
+    
+period_3_3_attempts <- nba[(nba$HOME_TEAM==i & nba$LOCATION=="H" & nba$PERIOD==3 & nba$PTS_TYPE==3), ]
+period_3_3_attempts_length <- aggregate(PTS_TYPE~GAME_ID, period_3_3_attempts, FUN=length)
+    
+period_3_3_successful <- nba[(nba$HOME_TEAM==i & nba$LOCATION=="H" & nba$PERIOD==3 & nba$PTS_TYPE==3 & nba$SHOT_RESULT=="made"),]
+period_3_3_successful_length <- aggregate(PTS_TYPE~GAME_ID, period_3_3_successful, FUN=length)
+    
+attempts_3 <- c(attempts_3, period_3_3_attempts_length$PTS_TYPE)    
+successful_3 <- c(successful_3, period_3_3_successful_length$PTS_TYPE)
+    
+period_4_3_attempts <- nba[(nba$HOME_TEAM==i & nba$LOCATION=="H" & nba$PERIOD==4 & nba$PTS_TYPE==3), ]
+period_4_3_attempts_length <- aggregate(PTS_TYPE~GAME_ID, period_4_3_attempts, FUN=length)
+    
+period_4_3_successful <- nba[(nba$HOME_TEAM==i & nba$LOCATION=="H" & nba$PERIOD==4 & nba$PTS_TYPE==3 & nba$SHOT_RESULT=="made"),]
+period_4_3_successful_length <- aggregate(PTS_TYPE~GAME_ID, period_4_3_successful, FUN=length)
+    
+attempts_4 <- c(attempts_4, period_4_3_attempts_length$PTS_TYPE)    
+successful_4 <- c(successful_4, period_4_3_successful_length$PTS_TYPE)
+
+
+letter_home_1_attempts <- c()
+letter_home_2_attempts <- c()
+letter_home_3_attempts <- c()
+letter_home_4_attempts <- c()
+
+letter_period_1_attempts <- c()
+letter_period_2_attempts <- c()
+letter_period_3_attempts <- c()
+letter_period_4_attempts <- c()
+
+repeat {
+    letter_home_1_attempts <- c(letter_home_1_attempts, 'H')
+    if(length(letter_home_1_attempts)==length(attempts_1)){
+        break
+    }
+}
+
+repeat {
+    letter_home_2_attempts <- c(letter_home_2_attempts, 'H')
+    if(length(letter_home_2_attempts)==length(attempts_2)){
+        break
+    }
+}
+
+repeat {
+    letter_home_3_attempts <- c(letter_home_3_attempts, 'H')
+    if(length(letter_home_3_attempts)==length(attempts_3)){
+        break
+    }
+}
+
+repeat {
+    letter_home_4_attempts <- c(letter_home_4_attempts, 'H')
+    if(length(letter_home_4_attempts)==length(attempts_4)){
+        break
+    }
+}
+
+repeat {
+    letter_period_1_attempts <- c(letter_period_1_attempts, '1')
+    if(length(letter_period_1_attempts)==length(attempts_1)){
+        break
+    }
+}
+
+repeat {
+    letter_period_2_attempts <- c(letter_period_2_attempts, '2')
+    if(length(letter_period_2_attempts)==length(attempts_2)){
+        break
+    }
+}
+
+repeat {
+    letter_period_3_attempts <- c(letter_period_3_attempts, '3')
+    if(length(letter_period_3_attempts)==length(attempts_3)){
+        break
+    }
+}
+
+repeat {
+    letter_period_4_attempts <- c(letter_period_4_attempts, '4')
+    if(length(letter_period_4_attempts)==length(attempts_4)){
+        break
+    }
+}
+
+
+
+period_1_3_pointer_data_attempts <- data.frame(attempts_1, letter_home_1_attempts, letter_period_1_attempts)
+period_2_3_pointer_data_attempts <- data.frame(attempts_2, letter_home_2_attempts, letter_period_2_attempts)
+period_3_3_pointer_data_attempts <- data.frame(attempts_3, letter_home_3_attempts, letter_period_3_attempts)
+period_4_3_pointer_data_attempts <- data.frame(attempts_4, letter_home_4_attempts, letter_period_4_attempts)
+
+colnames(period_1_3_pointer_data_attempts) <- c("attempts_3", "location","period")
+colnames(period_2_3_pointer_data_attempts) <- c("attempts_3", "location","period")
+colnames(period_3_3_pointer_data_attempts) <- c("attempts_3", "location","period")
+colnames(period_4_3_pointer_data_attempts) <- c("attempts_3", "location","period")
+
+
+all_3_attempts_location_vs_period <- rbind(period_1_3_pointer_data_attempts,period_2_3_pointer_data_attempts,
+                                          period_3_3_pointer_data_attempts,
+                                          period_4_3_pointer_data_attempts)
+
+
+
+all_periods_vs_locations_3_attempts <- rbind(period_1_3_pointer_data_attempts,period_2_3_pointer_data_attempts,
+                                            period_3_3_pointer_data_attempts,period_4_3_pointer_data_attempts)
+
+
+    
+}
+
+
+
+attempts_1_A <- c()
+successful_1_A <- c()
+period_letter_1_A <- c()
+
+attempts_2_A <- c()
+successful_2_A <- c()
+period_letter_2_A <- c()
+
+attempts_3_A <- c()
+successful_3_A <- c()
+period_letter_3_A <- c()
+
+attempts_4_A <- c()
+successful_4_A <- c()
+period_letter_4_A <- c()
+
+for(i in all_teams){
+    
+period_1_3_attempts_A <- nba[(nba$HOME_TEAM==i & nba$LOCATION=="A" & nba$PERIOD==1 & nba$PTS_TYPE==3), ]
+period_1_3_attempts_length_A <- aggregate(PTS_TYPE~GAME_ID, period_1_3_attempts_A, FUN=length)
+    
+period_1_3_successful_A <- nba[(nba$HOME_TEAM==i & nba$LOCATION=="A" & nba$PERIOD==1 & nba$PTS_TYPE==3 & nba$SHOT_RESULT=="made"),]
+period_1_3_successful_length_A <- aggregate(PTS_TYPE~GAME_ID, period_1_3_successful_A, FUN=length)
+    
+attempts_1_A <- c(attempts_1_A, period_1_3_attempts_length_A$PTS_TYPE)    
+successful_1_A <- c(successful_1_A, period_1_3_successful_length_A$PTS_TYPE)
+    
+period_2_3_attempts_A <- nba[(nba$HOME_TEAM==i & nba$LOCATION=="A" & nba$PERIOD==2 & nba$PTS_TYPE==3), ]
+period_2_3_attempts_length_A <- aggregate(PTS_TYPE~GAME_ID, period_2_3_attempts_A, FUN=length)
+    
+period_2_3_successful_A <- nba[(nba$HOME_TEAM==i & nba$LOCATION=="A" & nba$PERIOD==2 & nba$PTS_TYPE==3 & nba$SHOT_RESULT=="made"),]
+period_2_3_successful_length_A <- aggregate(PTS_TYPE~GAME_ID, period_2_3_successful_A, FUN=length)
+    
+attempts_2_A <- c(attempts_2_A, period_2_3_attempts_length_A$PTS_TYPE)    
+successful_2_A <- c(successful_2_A, period_2_3_successful_length_A$PTS_TYPE)
+    
+period_3_3_attempts_A <- nba[(nba$HOME_TEAM==i & nba$LOCATION=="A" & nba$PERIOD==3 & nba$PTS_TYPE==3), ]
+period_3_3_attempts_length_A <- aggregate(PTS_TYPE~GAME_ID, period_3_3_attempts_A, FUN=length)
+    
+period_3_3_successful_A <- nba[(nba$HOME_TEAM==i & nba$LOCATION=="A" & nba$PERIOD==3 & nba$PTS_TYPE==3 & nba$SHOT_RESULT=="made"),]
+period_3_3_successful_length_A <- aggregate(PTS_TYPE~GAME_ID, period_3_3_successful_A, FUN=length)
+    
+attempts_3_A <- c(attempts_3_A, period_3_3_attempts_length_A$PTS_TYPE)    
+successful_3_A <- c(successful_3_A, period_3_3_successful_length_A$PTS_TYPE)
+    
+period_4_3_attempts_A <- nba[(nba$HOME_TEAM==i & nba$LOCATION=="A" & nba$PERIOD==4 & nba$PTS_TYPE==3), ]
+period_4_3_attempts_length_A <- aggregate(PTS_TYPE~GAME_ID, period_4_3_attempts_A, FUN=length)
+    
+period_4_3_successful_A <- nba[(nba$HOME_TEAM==i & nba$LOCATION=="A" & nba$PERIOD==4 & nba$PTS_TYPE==3 & nba$SHOT_RESULT=="made"),]
+period_4_3_successful_length_A <- aggregate(PTS_TYPE~GAME_ID, period_4_3_successful_A, FUN=length)
+    
+attempts_4_A <- c(attempts_4_A, period_4_3_attempts_length_A$PTS_TYPE)    
+successful_4_A <- c(successful_4_A, period_4_3_successful_length_A$PTS_TYPE)
+
+
+
+letter_home_1_attempts_A <- c()
+letter_home_2_attempts_A <- c()
+letter_home_3_attempts_A <- c()
+letter_home_4_attempts_A <- c()
+
+letter_period_1_attempts_A <- c()
+letter_period_2_attempts_A <- c()
+letter_period_3_attempts_A <- c()
+letter_period_4_attempts_A <- c()
+
+repeat {
+    letter_home_1_attempts_A <- c(letter_home_1_attempts_A, 'A')
+    if(length(letter_home_1_attempts_A)==length(attempts_1_A)){
+        break
+    }
+
+}
+
+repeat {
+    letter_home_2_attempts_A <- c(letter_home_2_attempts_A, 'A')
+    if(length(letter_home_2_attempts_A)==length(attempts_2_A)){
+        break
+    }
+
+}
+
+repeat {
+    letter_home_3_attempts_A <- c(letter_home_3_attempts_A, 'A')
+    if(length(letter_home_3_attempts_A)==length(attempts_3_A)){
+        break
+    }
+
+}
+
+repeat {
+    letter_home_4_attempts_A <- c(letter_home_4_attempts_A, 'A')
+    if(length(letter_home_4_attempts_A)==length(attempts_4_A)){
+        break
+    }
+
+}
+
+repeat {
+    letter_period_1_attempts_A <- c(letter_period_1_attempts_A, '1')
+    if(length(letter_period_1_attempts_A)==length(attempts_1_A)){
+        break
+    }
+}
+
+repeat {
+    letter_period_2_attempts_A <- c(letter_period_2_attempts_A, '2')
+    if(length(letter_period_2_attempts_A)==length(attempts_2_A)){
+        break
+    }
+}
+
+repeat {
+    letter_period_3_attempts_A <- c(letter_period_3_attempts_A, '3')
+    if(length(letter_period_3_attempts_A)==length(attempts_3_A)){
+        break
+    }
+}
+
+repeat {
+    letter_period_4_attempts_A <- c(letter_period_4_attempts_A, '4')
+    if(length(letter_period_4_attempts_A)==length(attempts_4_A)){
+        break
+    }
+}
+
+
+period_1_3_pointer_data_attempts_A <- data.frame(attempts_1_A, letter_home_1_attempts_A, letter_period_1_attempts_A)
+period_2_3_pointer_data_attempts_A <- data.frame(attempts_2_A, letter_home_2_attempts_A, letter_period_2_attempts_A)
+period_3_3_pointer_data_attempts_A <- data.frame(attempts_3_A, letter_home_3_attempts_A, letter_period_3_attempts_A)
+period_4_3_pointer_data_attempts_A <- data.frame(attempts_4_A, letter_home_4_attempts_A, letter_period_4_attempts_A)
+
+colnames(period_1_3_pointer_data_attempts_A) <- c("attempts_3", "location","period")
+colnames(period_2_3_pointer_data_attempts_A) <- c("attempts_3", "location","period")
+colnames(period_3_3_pointer_data_attempts_A) <- c("attempts_3", "location","period")
+colnames(period_4_3_pointer_data_attempts_A) <- c("attempts_3", "location","period")
+
+
+all_periods_vs_locations_3_attempts_A <- rbind(period_1_3_pointer_data_attempts_A,period_2_3_pointer_data_attempts_A,
+                                            period_3_3_pointer_data_attempts_A,period_4_3_pointer_data_attempts_A)
+
+
+periods_vs_locations <- rbind(all_periods_vs_locations_3_attempts, all_periods_vs_locations_3_attempts_A)
+
+
+df1 <- periods_vs_locations[sample(nrow(periods_vs_locations)),]
+
+df1$location <- as.factor(df1$location)
+df1$period <- as.factor(df1$period)
+    
+}
+
+```
+As we only find a significance in the p-value of periods, we will conclude that we only have a evidence to suggest periods affect the amount of 3 pointers.
+```{r, echo = FALSE}
+two_way_anova <- aov(attempts_3 ~ period+location+period:location, data = df1)
+```
+```{r, echo = TRUE}
+summary(two_way_anova)
+```
+## Shoot Distances By Each Period
+
+Figure \@ref(fig:shoot-distances-by-period) shows the distances of the shoot preferences in each period. As first sight, we see the period 4 has the highest mean of shoot distance according to data provided.
+```{r shoot-distances-by-period, echo = FALSE, fig.height = 4, fig.width = 8, fig.cap = "Shot Distances with Respect to Periods", fig.align = "center",, latex_options = "HOLD_position", fig.pos="H"}
+Data_Distances_by_Period <- data.frame(nba$SHOT_DIST[nba$PERIOD<5], nba$PERIOD[nba$PERIOD<5])
+colnames(Data_Distances_by_Period)<-c('SHOT_DIST','PERIOD')
+Data_Distances_by_Period$PERIOD <- factor(Data_Distances_by_Period$PERIOD)
+
+boxplot(Data_Distances_by_Period$SHOT_DIST[Data_Distances_by_Period$PERIOD==1],
+       Data_Distances_by_Period$SHOT_DIST[Data_Distances_by_Period$PERIOD==2],
+       Data_Distances_by_Period$SHOT_DIST[Data_Distances_by_Period$PERIOD==3],
+       Data_Distances_by_Period$SHOT_DIST[Data_Distances_by_Period$PERIOD==4],
+        col = c("purple","purple","purple","purple"), names = c(1,2,3,4), ylab='Distance of Shoot', xlab = "Periods")
+
+
+```
+In table \@ref(tab:shot-distances), we applied 3 tests for homogeneity of variances at the significance level of 0.01 and by looking at their p-values, we can suggest that we have evidences to say variance of shoot distances differ across periods.
+```{r shot-distances, echo = FALSE}
+
+fligner_test_distance <- fligner.test(SHOT_DIST ~ PERIOD, data=Data_Distances_by_Period)
+bartlett_test_distance <- bartlett.test(SHOT_DIST ~ PERIOD, data=Data_Distances_by_Period)
+levene_test_distance <- leveneTest(SHOT_DIST ~ PERIOD, data=Data_Distances_by_Period, center=mean)
+
+distances_by_period_pvalues <- data.frame(Test=c('Bartlett', 'Fligner-Killeen', 'Levene'),
+                                    p.value=c(fligner_test_distance$p.value, bartlett_test_distance$p.value,
+                                              levene_test_distance[1,3]))
+
+knitr::kable(
+  distances_by_period_pvalues,
+  caption = 'Variance tests of the shot distances with respect to Periods',
+  align = 'cc',
+  booktabs = TRUE)%>%kable_styling(latex_options = "HOLD_position")
+
+```
+As we used one-way anova test below, we have a significant p-value and we have a proof to say there is a relationship between shot distances and periods.
+```{r, echo = FALSE}
+
+oneway.test(SHOT_DIST ~ PERIOD, data=Data_Distances_by_Period, var.equal = TRUE)
+
+```
+- Previously, as we find evidences to state 3 pointer attempts in period 4 are likely to be highest among all periods, and this situation might cause an increase in the shoot distance preferences as well. Thus as we see in the table \@ref(tab:shot-distances), the box-plots can be more meaningful to say as the match approaches to end, the 3 pointer attempts increase and as a result, the mean on shoot distance may increase.
+
+# The Effect of Shot Clock on 3 Pointers {#sec:shot-clock-effect}
+
+As we see in many nba matches, the 3 point attempts in the last seconds of shot clock can be crucial for the result of the matches. Thus, analyzing the effects of shot clock can be considerable.
+
+In the Figure \@ref(fig:shot-clock-and-3-points-success) we look at the confidence interval of successful 3 pointers for the intervals of 0 to 2 seconds, 2 to 24 seconds and 0 to 24 seconds. As we can see, the confidence interval of the probability of successful 3 shoots in less than 2 seconds is lower than all samples and the 2 to 24 seconds interval. Since the sample size is also very small compared to other intervals, the 0-2 shot clock interval almost do not affect the shot clock probability confidence interval for the full sample size.
+```{r, echo = FALSE}
+newdata <- na.omit(nba)
+
+all_2 <- length(newdata$PLAYER_NAME[newdata$SHOT_CLOCK<=2 & newdata$PTS_TYPE == 3])
+made_2 <- length(newdata$PLAYER_NAME[newdata$SHOT_CLOCK<=2 & newdata$PTS_TYPE == 3 & newdata$SHOT_RESULT =="made"])
+
+all_2_non <- length(newdata$PLAYER_NAME[newdata$SHOT_CLOCK>2 & newdata$PTS_TYPE == 3 ])
+made_2_non <- length(newdata$PLAYER_NAME[newdata$SHOT_CLOCK>2 & newdata$PTS_TYPE == 3 & newdata$SHOT_RESULT == "made"])
+
+success_2 <- c(made_2,made_2_non)
+prop_shotclock <- prop.test(success_2, c(all_2,all_2_non), alternative = 'less' , conf.level = 0.99)$p.value
+
+noquote(sprintf('Prop-test: p-val=%.20f', prop_shotclock))
+
+
+```
+When we apply the prop-test we also see a very low p-value and since we obtain a strong proof to state that the probability of successful shoots is lower in the interval of 0-2 seconds than the interval of 2-24 seconds.
+
+
+```{r shot-clock-and-3-points-success, echo = FALSE, fig.height = 3, fig.width = 5, fig.cap = "Comparison of probabilities for the successful 3 pointers with different shot clock intervals", fig.align = "center", latex_options = "HOLD_position", fig.pos="H"}
+
+all_24 <- length(newdata$PLAYER_NAME[newdata$PTS_TYPE==3])
+made_all_24 <- length(newdata$SHOT_CLOCK[newdata$SHOT_RESULT == "made" & newdata$PTS_TYPE==3])
+
+t_1 <- c(binconf(made_2, all_2, alpha=0.01)[2], binconf(made_2, all_2, alpha=0.01)[3])
+t_2 <- c(binconf(made_2_non, all_2_non, alpha=0.01)[2], binconf(made_2_non, all_2_non, alpha=0.01)[3])
+t_3 <- c(binconf(made_all_24, all_24, alpha=0.01)[2], binconf(made_all_24, all_24, alpha=0.01)[3])
+
+options(repr.plot.width=8, repr.plot.height=6)
+
+plot(t_3, c(0,0), type='l', lwd=15, col='red',  # All 
+     xlim=c(0,1), ylim=c(-0.5,1.5), 
+     xlab='', ylab='', 
+     yaxt='n')
+
+
+axis(2, at=c(0,1/2,1), labels=c('More2S','Less2S','All'), las=1)
+
+lines(t_1, c(1,1)/2, type='l', lwd=15, col='blue') # Less Than 2 seconds
+
+lines(t_2, c(1,1), type='l', lwd=15, col='green') #More than 2 seconds
+
+
+
+
+```
+# Average Score Predictions of Nba Players {#sec:average-prediction}
+We calculate some average statistics for the players in given nba data set to perform a multi-linear regression among some specific features by looking at the partial correlation map (See the appendix table \@ref(fig:correlation-for-player-statistics) to look at the partial correlation map created for the player analysis.) to predict the average score of the nba players. 
+
+```{r, echo=FALSE}
+test_spearman_df <- data.frame(Test=c('dribbles_avg', 'touchtime_avg', 'point_3_success_percentage'),
+                                    p.value=c(pcor(data_players[,c(3,4)], method="spearman")$p.value[2], pcor(data_players[,c(3,5)],method="spearman")$p.value[2],pcor(data_players[,c(3,7)],method="spearman")$p.value[2]))
+
+```
+After performing spearman correlation tests for the features dribbles_avg, touchtime_avg and point_3_success_percentage, we find `r test_spearman_df$p.value[1]`, `r test_spearman_df$p.value[2]`, `r test_spearman_df$p.value[3]` respectively. As all of the features are significant at 0.01 confidence interval, we perform a multi-linear regression to predict the average score of the nba players via using these features.
+```{r, echo=FALSE}
+
+fit1 <- lm(score_avg ~ dribbles_avg + touchtime_avg + point_3_success_percentage, 
+           data=data_players)
+
+mae1 <- function(x,y)
+  {
+  mean(abs(x-y))
+  }
+maep <- function(x,y)
+    {
+    mean(abs(x-y)/y)    
+    }
+R_square <- function (x, y) cor(x, y) ^ 2
+
+```
+```{r regression-of-score-avg, echo = FALSE, fig.height = 4, fig.width = 8, fig.cap = "Multi-linear regression to predict the average score of the players", fig.align = "center", latex_options = "HOLD_position", fig.pos="H"}
+plot(data_players$score_avg, fit1$fitted.values, pch=3,
+     lwd=2, col='forestgreen')
+
+abline(a=0, b=1, lwd=5, col='red')
+noquote(sprintf('R_square_fit1 = %.4f', R_square(fit1$fitted.values,data_players$score_avg)))
+noquote(sprintf('Mean Absolute Error = %.4f ',mae1(fit1$fitted.values,data_players$score_avg)))
+noquote(sprintf('Mean Absolute Percentage Error = %.4f' , maep(fit1$fitted.values,data_players$score_avg)))
+
+```
+ We find 82.7% of the data fit the model, we make predictions with 1.2936 error for average score and our mean percentage error is 17.77%.
+```{r, echo=FALSE}
+durbinWatsonTest(fit1)
+
+```
+Autocorrelation calculates the relationships of observations with different time periods. In both tests, we didn't see any significance, so we are failed to reject the null hypothesis and we have an evidence to conclude there is no autocorrelation on our residuals(differences between prediction and observation data).
+
+```{r, echo=FALSE}
+sample_size = nrow(data_players)
+shapiro.test(fit1$residuals[sample(1:sample_size, 200)])
+
+```
+We have a p-value with less than 0.05 for the Shapiro-Wilk normality test, so we have a strong argument to say the residuals are not normally distributed.
+```{r, echo=FALSE}
+bptest(fit1)
+```
+Residual homoscedasticity checks whether residuals or forecasting errors have a constant variance. So the forecasting errors are heteroscedastic since our alpha is greater than p-value and we will conclude the residuals do not have constant variance.
+
+```{r, echo=TRUE}
+outlierTest(fit1)
+data_players$player_name[33]
+```
+In our fitted model, we only find Kobe Bryant as the the outlier, the person with score average that differs significantly from other players.
+
+# Conclusion
+
+In the report, we examined the features of NBA dataset in detail. We calculated some margin mean, median and variance for the NBA teams with respect to home and away locations. We examine the average scores of the players in a histogram with the average confidence interval included(The average do not include free throws). Furthermore we investigate some key features with correlation heatmap.  When it comes to the inferential statistics, we take advantage of various statistical techniques to make inferences from the data. We take advantage of some tests such as t-test,F-test, Chi-Test, One Way Anova, Two Way Anova. We also performed some non parametric tests to compare the variance of the team margins. In addition, we computed and visualized a linear regression for the prediction of average point scores and we evaluated the performance of our linear regression deeply.
+
+  When it comes to summarize our key points:
+  
+  1.There is a strong correlation between some particular player average features. (Section \@ref(sec:intro))
+  
+  2.Match locations impact the margin performance of the teams significantly. (Section \@ref(sec:team-performance-game-location))
+
+  3.Match locations also greatly affect the odds of teams to win the match. (Section \@ref(sec:team-performance-game-location))
+
+  4.Periods have major impact on the amount of attempts for 2 and 3 pointers. (Section \@ref(sec:periods))
+
+  5.There is a strong relationship between the probability of successful 2 and 3 pointers and the periods. (Section \@ref(sec:periods))
+
+  6.There is a connection between shoot distances and the periods. As the match approaches to the end, players tend to prefer 3 pointers and that might be the consequence of the increase in shoot distance average. (Section \@ref(sec:periods))
+
+  7.As the shot clock decreases, players tend to successful 3 pointer rates are reduced. (Section \@ref(sec:shot-clock-effect))
+
+  8.Average score predictions can be made via using particular features of the players. (Section \@ref(sec:average-prediction))
+
+These observations appear statistically significant and further analysis can be made to check our findings.
+
